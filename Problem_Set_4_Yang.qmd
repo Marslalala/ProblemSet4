@@ -1,0 +1,957 @@
+---
+title: "Problem_Set_4_Yang"
+author: "Yang Han"
+format: 
+  html:
+    embed-resources: true
+    code-fold: true
+    code-summary: "Show the code"
+    warning: false
+    error: false
+editor: visual
+---
+
+Link to Github repository:
+
+***https://github.com/Marslalala/ProblemSet2.git***
+
+# Question 1
+
+## Part a
+
+Load the necessary libraries first.
+
+```{r}
+library(tidyverse)
+library(nycflights13)
+```
+
+Get the tibble "flights" and clean the data as we only need departure and arrival delays, destination, and departing airport in this case.
+
+```{r}
+flight_tib <- nycflights13::flights
+flight_times <- flight_tib %>%
+  select(dep_delay,
+         arr_delay,
+         origin,
+         dest)
+```
+
+Rename the departing airports.
+
+```{r}
+flight_times <- flight_times %>%
+  mutate(origin = replace(origin, origin == "EWR", airports$name[airports$faa == "EWR"])) %>%
+  mutate(origin = replace(origin, origin == "LGA", airports$name[airports$faa == "LGA"])) %>%
+  mutate(origin = replace(origin, origin == "JFK", airports$name[airports$faa == "JFK"]))
+```
+
+To generate the first table, we need to aggregate the data by departing airport and then get the mean and the median.
+
+```{r}
+flight_dep_delay <- flight_times %>% 
+  group_by(origin) %>% 
+  summarize(mean_delay_time = mean(dep_delay, na.rm = TRUE), 
+            median_delay_time = median(dep_delay, na.rm = TRUE)) %>%
+  ungroup()
+```
+
+Reorder the table in descending mean delay and make it nice.
+
+```{r}
+flight_dep_delay <- flight_dep_delay %>%
+  arrange(desc(mean_delay_time)) %>% 
+  rename(departing_airport = origin)
+```
+
+Display the first table.
+
+```{r}
+print(flight_dep_delay)
+```
+
+To generate the second table, we need to exclude any destination with under 10 flights first and then change the destination airport codes to their corresponding names.
+
+```{r}
+airports_name <- airports %>% 
+  select(faa, 
+         name)
+airports_name <- airports_name %>% 
+  rename(dest = faa)
+flight_counts <- flight_times %>%
+  group_by(dest) %>%
+  summarize(count = n()) %>%
+  filter(count >= 10) %>% 
+  ungroup()
+flight_times <- flight_times %>% 
+  filter(dest %in% flight_counts$dest) %>%
+  left_join(airports_name, by = "dest")
+```
+
+Then carry out the same thing we did for the first table.
+
+```{r}
+flight_arr_delay <- flight_times %>% 
+  group_by(name) %>% 
+  summarize(mean_delay_time = mean(arr_delay, na.rm = TRUE), 
+            median_delay_time = median(arr_delay, na.rm = TRUE)) %>%
+  ungroup()
+```
+
+Reorder the table in descending mean delay and make it nice.
+
+```{r}
+flight_arr_delay <- flight_arr_delay %>%
+  arrange(desc(mean_delay_time)) %>% 
+  rename(arriving_destination = name)
+flight_arr_delay <- na.omit(flight_arr_delay)
+```
+
+Display the second table.
+
+```{r}
+print(flight_arr_delay, n = 98)
+```
+
+## Part b
+
+Firstly, combine two tibbles flights and planes and get the variables of interests.
+
+```{r}
+flight_plane <- flights %>% 
+  left_join(planes, by = "tailnum")
+flight_plane <- flight_plane %>%
+  mutate(speeds = distance / (air_time / 60)) %>%
+  select(model,
+         speeds)
+```
+
+Then get the result tibble by reordering the data and calculate the number of flights of the fastest model.
+
+```{r}
+flight_plane <- flight_plane %>% 
+  group_by(model) %>%
+  summarize(avg_speed = mean(speeds), 
+            number_of_flights = n()) %>%
+  arrange(desc(avg_speed)) %>%
+  ungroup()
+```
+
+Finalize the result and display the result.
+
+```{r}
+result <- flight_plane[1,]
+print(result)
+```
+
+# Question 2
+
+Load the data.
+
+```{r}
+nnmaps <- read.csv("chicago-nnmaps.csv")
+```
+
+Define the function get_temp.
+
+```{r}
+#| code-fold: show
+get_temp <- function(month, year, data, celsius = FALSE, average_fn = mean) {
+  #' Get the average temperature for a given month in a given data
+  #' 
+  #' Sanitize the input first
+  #' Then select the variables needed
+  #' Calculate the mean
+  #' Convert to Celsius if the corresponding input is true
+  #' @param month an integer or a string
+  #' @param year an integer
+  #' @param data a dataframe
+  #' @param celsius a logical value indicating whether the results should be in      #'                celsius. Default FALSE
+  #' @param average_fn a function with which to compute the mean. Default is mean
+  #' @return a numeric vector of length 1; the average temperature for given month
+
+  #  Sanitize the input by ensuring 'month' is a valid value (numeric or string)
+  if(!month %in% month.abb & !month %in% month.name & !month %in% 1:12) {
+    return("Invalid month. Please provide a valid month as a numeric 1-12 or a string.")
+  }
+  #  Sanitize the input by ensuring 'year' is valid
+  if(!is.double(year)) {
+    return("Invalid year. Please provide a reasonable integer.")
+  } else if(!year %in% 1997:2000) {
+    return("The provided year is not included in the nnmaps dataset")
+  }
+  
+  #  Select the variables we need
+  #  Add a new variable which is the full name of "month"
+  data <- data %>%
+    mutate(month_full = month.name[match(data$month, month.abb)])
+  #  Manipulate the data according to the format of input "month"
+  if(month %in% month.abb) {
+    target_data <- data %>%
+      select(temp,
+             year,
+             month)
+  } else if(month %in% month.name) {
+    target_data <- data %>%
+      select(temp,
+             year,
+             month_full) %>%
+      rename(month = month_full)
+  } else {
+    target_data <- data %>%
+      select(temp,
+             year,
+             month_numeric) %>% 
+      rename(month = month_numeric)
+  }
+  #  Then compute the mean temperature
+  avg_temp <- target_data %>% 
+    group_by(month, year) %>%
+    summarize(average_fn = average_fn(temp)) %>%
+    ungroup()
+  
+  #  Convert to Celsius if Celsius is TRUE
+  if(celsius) {
+    avg_temp <- avg_temp %>% 
+      mutate(average_fn = (average_fn - 32) * (5 / 9))
+  }
+  
+  #  Extract the numeric result as a vector of length 1
+  result <- avg_temp$average_fn[avg_temp$year == year & avg_temp$month == month]
+  
+  return(result)
+}
+```
+
+Test the examples:
+
+```{r}
+get_temp("Apr", 1999, data = nnmaps)
+get_temp("Apr", 1999, data = nnmaps, celsius = TRUE)
+get_temp(10, 1998, data = nnmaps, average_fn = median)
+get_temp(13, 1998, data = nnmaps)
+get_temp(2, 2005, data = nnmaps)
+get_temp("November", 1999, data =nnmaps, celsius = TRUE,
+         average_fn = function(x) {
+           x %>% sort -> x
+           x[2:(length(x) - 1)] %>% mean %>% return
+         })
+```
+
+# Question 3
+
+## Part a
+
+/\* Calculate the effective sample size first. \*/
+
+```{}
+proc sort data = in_lib.recs2020_public_v5
+  out = recs2020; 
+  by state_name; 
+run; 
+```
+
+```{}
+data recs2020;
+  set recs2020;
+  nweight_sq = NWEIGHT * NWEIGHT;
+run;
+```
+
+```{}
+proc summary data = recs2020;
+  class state_name; 
+  output out = ess_by_state_recs2020
+  sum(NWEIGHT) = num
+  sum(nweight_sq) = den;
+run; 
+```
+
+```{}
+data ess_by_state_recs2020;
+  set ess_by_state_recs2020;
+  where _type_ = 1;
+  ess = num * num / den;
+  drop num den _type_;
+run;
+```
+
+/\* Calculate the record percentages. \*/
+
+```{}
+proc sql;
+  SELECT state_name, (ess / sum(ess)) * 100 AS percentage
+  FROM ess_by_state_recs2020
+  ORDER BY percentage DESC;
+quit;
+```
+
+From this data we can see that California has the highest percentage of records, which is 6.24%. The percentage of records of Michigan is 2.09%.
+
+## Part b
+
+/\* Generate the histogram. \*/
+
+```{}
+proc univariate data = recs2020;
+  var DOLLAREL;
+  where DOLLAREL > 0;
+  histogram / normal;
+run;
+```
+
+## Part c
+
+/\* Generate the histogram. \*/
+
+```{}
+data recs2020;
+  set recs2020;  
+  log_DOLLAREL = log(DOLLAREL);
+run;
+```
+
+```{}
+data recs2020;
+  set recs2020;  
+  log_DOLLAREL = log(DOLLAREL);
+run;
+```
+
+## Part d
+
+/\* Clean the data before fit the model \*/
+
+```{}
+data recs2020;
+  set recs2020;
+  if PRKGPLC1 = -2 then delete;
+run;
+```
+
+/\* Fit the model and get the result. \*/
+
+```{}
+proc reg data = recs2020 plots(maxpoints = none);
+  model log_DOLLAREL = TOTROOMS PRKGPLC1;
+  weight NWEIGHT;
+run;
+```
+
+## Part e
+
+/\* Generate the predicted values. \*/
+
+```{}
+proc reg data = recs2020 plots(maxpoints = none);
+  model log_DOLLAREL = TOTROOMS PRKGPLC1;
+  weight NWEIGHT;
+  output out = out_lib.Predicted predicted = pred_log_DOLLAREL;
+run;
+```
+
+```{}
+data out_lib.predicted_vs_actual;
+  set out_lib.predicted;
+  pred_DOLLAREL = exp(pred_log_DOLLAREL);
+  keep DOLLAREL pred_DOLLAREL;
+run;
+```
+
+/\* Generate the scatterplot. \*/
+
+```{}
+proc sgplot data = out_lib.predicted_vs_actual;
+  scatter x = DOLLAREL y = pred_DOLLAREL;
+  xaxis label = 'Actual DOLLAREL';
+  yaxis label = 'Predicted DOLLAREL';
+  title 'Predicted DOLLAREL vs. Actual DOLLARE';
+run;
+```
+
+# Question 4
+
+## Part a
+
+I think this codebook was generated by a text editor or any kinds of markdown. It was generated based on a survey questionnaire.
+
+## Part b
+
+/\* sas library: \*/
+
+```{}
+%let in_path = /home/u63642906/sasuser.v94/yhan()/data/; 
+%let out_path = /home/u63642906/sasuser.v94/yhan()/sas/;  
+libname mylib "&out_path."; run;
+```
+
+/\* import delimited data with proc import: \*/
+
+```{}
+proc import datafile = "&in_path.public2022.csv" out = shed;
+run;
+```
+
+/\* use proc sql to select required variables: \*/
+
+```{}
+proc sql;
+CREATE TABLE target AS
+SELECT B3 AS fin_condition,
+ND2 AS ND_chance, 
+B7_b AS econ_condition,
+pprent AS ownership_house,
+ppeducat AS education,
+race_5cat AS race
+FROM shed;
+quit;
+```
+
+## Part c
+
+/\* export the required data. \*/
+
+```{}
+proc export data = work.target
+outfile = "&out_path\shed.csv" 
+dbms = csv replace;
+putnames = yes;
+run;
+```
+
+## Part d
+
+\* Import the data into stata first.
+
+```{import sas "shed"}
+```
+
+\* Check the data if it is successfully extracted.
+
+```{describe}
+```
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. describe
+
+Contains data
+
+Observations: 11,667
+
+Variables: 8
+
+\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+Variable Storage Display Value
+
+name type format label Variable label
+
+\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+CaseID int %10.0g
+
+weight_pop double %10.0g
+
+fin_condition str19 %19s
+
+ND_chance str15 %15s
+
+econ_condition str9 %9s
+
+ownership_house str57 %57s
+
+education str64 %64s
+
+race str8 %9s
+
+\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+Sorted by:
+
+Note: Dataset has changed since last saved.
+
+.
+
+end of do-file
+
+.
+
+\* From the result we can see that there are 11667 observations and 8 variables, which is desired.
+
+## Part e
+
+\* Convert the response value to binary values with Same/Better = 0 and Worse off = 1.
+
+```{}
+generate financial = 0 if fin_condition == "About the same"
+replace financial = 0 if missing(financial) & fin_condition == "Somewhat better off"
+replace financial = 0 if missing(financial) & fin_condition == "Much better off"
+replace financial = 1 if missing(financial) & fin_condition == "Much worse off"
+replace financial = 1 if missing(financial) & fin_condition == "Somewhat worse off"
+```
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. generate financial = 0 if fin_condition == "About the same"
+
+(6,380 missing values generated)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace financial = 0 if missing(financial) & fin_condition == "Somewhat better off"
+
+(1,605 real changes made)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace financial = 0 if missing(financial) & fin_condition == "Much better off"
+
+(479 real changes made)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace financial = 1 if missing(financial) & fin_condition == "Much worse off"
+
+(1,020 real changes made)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace financial = 1 if missing(financial) & fin_condition == "Somewhat worse off"
+
+(3,276 real changes made)
+
+.
+
+end of do-file
+
+.
+
+## Part f
+
+\* Before fitting the logistic model, we need to transform the variables into numeric.
+
+```{}
+generate nd_chance = 1 if ND_chance == "Much higher"
+
+replace nd_chance = 2 if missing(nd_chance) & ND_chance == "Somewhat higher"
+
+replace nd_chance = 3 if missing(nd_chance) & ND_chance == "About the same"
+
+replace nd_chance = 4 if missing(nd_chance) & ND_chance == "Somewhat lower"
+
+replace nd_chance = 5 if missing(nd_chance) & ND_chance == "Much lower"
+```
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. generate nd_chance = 1 if ND_chance == "Much higher"
+
+(10,602 missing values generated)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace nd_chance = 2 if missing(nd_chance) & ND_chance == "Somewhat higher"
+
+(2,915 real changes made)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace nd_chance = 3 if missing(nd_chance) & ND_chance == "About the same"
+
+(7,201 real changes made)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace nd_chance = 4 if missing(nd_chance) & ND_chance == "Somewhat lower"
+
+(200 real changes made)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace nd_chance = 5 if missing(nd_chance) & ND_chance == "Much lower"
+
+(286 real changes made)
+
+.
+
+end of do-file
+
+.
+
+```{}
+generate economic = 1 if econ_condition == "Poor"
+
+replace economic = 2 if missing(economic) & econ_condition == "Only fair"
+
+replace economic = 3 if missing(economic) & econ_condition == "Good"
+
+replace economic = 4 if missing(economic) & econ_condition == "Excellent"
+```
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. generate economic = 1 if econ_condition == "Poor"
+
+(7,467 missing values generated)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace economic = 2 if missing(economic) & econ_condition == "Only fair"
+
+(5,411 real changes made)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace economic = 3 if missing(economic) & econ_condition == "Good"
+
+(1,952 real changes made)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace economic = 4 if missing(economic) & econ_condition == "Excellent"
+
+(104 real changes made)
+
+.
+
+end of do-file
+
+.
+
+```{}
+generate ownership = 1 if ownership_house == "Owned or being bought by you or someone in your household"
+
+replace ownership = 2 if missing(ownership) & ownership_house == "Rented for cash"
+
+replace ownership = 3 if missing(ownership) & ownership_house == "Occupied without payment of cash rent"
+```
+
+. generate ownership = 1 if ownership_house == "Owned or being bought by you or someone in your household"
+
+(3,059 missing values generated)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace ownership = 2 if missing(ownership) & ownership_house == "Rented for cash"
+
+(2,866 real changes made)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace ownership = 3 if missing(ownership) & ownership_house == "Occupied without payment of cash rent"
+
+(193 real changes made)
+
+.
+
+end of do-file
+
+.
+
+```{}
+generate edu = 1 if education == "No high school diploma or GED"
+
+replace edu = 2 if missing(edu) & education == "High school graduate (high school diploma or the equivalent GED)"
+
+replace edu = 3 if missing(edu) & education == "Some college or Associate's degree"
+
+replace edu = 4 if missing(edu) & education == "Bachelor's degree or higher"
+```
+
+. generate edu = 1 if education == "No high school diploma or GED"
+
+(10,979 missing values generated)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace edu = 2 if missing(edu) & education == "High school graduate (high school diploma or the equivalent GED)"
+
+(2,772 real changes made)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace edu = 3 if missing(edu) & education == "Some college or Associate's degree"
+
+(3,226 real changes made)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace edu = 4 if missing(edu) & education == "Bachelor's degree or higher"
+
+(4,981 real changes made)
+
+.
+
+end of do-file
+
+.
+
+```{}
+generate reth = 1 if race == "White"
+
+replace reth = 2 if race == "Black"
+
+replace reth = 3 if race == "Hispanic"
+
+replace reth = 4 if race == "Asian"
+
+replace reth = 5 if race == "Other"
+```
+
+. generate reth = 1 if race == "White"
+
+(3,607 missing values generated)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace reth = 2 if race == "Black"
+
+(1,225 real changes made)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace reth = 3 if race == "Hispanic"
+
+(1,464 real changes made)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace reth = 4 if race == "Asian"
+
+(464 real changes made)
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. replace reth = 5 if race == "Other"
+
+(454 real changes made)
+
+.
+
+end of do-file
+
+.
+
+\* Use the given code and fit the logisitic model.
+
+```{svyset CaseID [pw = weight_pop]}
+svy: logistic financial nd_chance economic ownership i.edu i.reth
+```
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. svyset CaseID \[pw = weight_pop\]
+
+Sampling weights: weight_pop
+
+VCE: linearized
+
+Single unit: missing
+
+Strata 1: \<one\>
+
+Sampling unit 1: CaseID
+
+FPC 1: \<zero\>
+
+.
+
+end of do-file
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. svy: logistic financial nd_chance economic ownership i.edu i.reth
+
+(running logistic on estimation sample)
+
+Survey: Logistic regression
+
+Number of strata = 1 Number of obs = 11,667
+
+Number of PSUs = 11,667 Population size = 255,114,223
+
+Design df = 11,666
+
+F(10, 11657) = 85.36
+
+Prob \> F = 0.0000
+
+\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+\| Linearized
+
+financial \| Odds ratio std. err. t P\>\|t\| \[95% conf. interval\]
+
+\-\-\-\-\-\-\-\-\-\-\-\--+\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+nd_chance \| .9712164 .0294572 -0.96 0.336 .9151582 1.030708
+
+economic \| .3790381 .0138082 -26.63 0.000 .3529155 .4070943
+
+ownership \| 1.011896 .0489229 0.24 0.807 .9204024 1.112484
+
+\|
+
+edu \|
+
+2 \| .9524301 .0975031 -0.48 0.634 .779263 1.164078
+
+3 \| .9204736 .0920037 -0.83 0.407 .7566983 1.119696
+
+4 \| .8282626 .0812624 -1.92 0.055 .6833551 1.003898
+
+\|
+
+reth \|
+
+2 \| .4789756 .0385619 -9.14 0.000 .4090504 .5608543
+
+3 \| .8336588 .0589347 -2.57 0.010 .7257838 .9575675
+
+4 \| .6268794 .0789934 -3.71 0.000 .4896801 .8025193
+
+5 \| 1.004909 .1604681 0.03 0.976 .7348344 1.374246
+
+\|
+
+\_cons \| 3.880488 .6160663 8.54 0.000 2.84273 5.297087
+
+\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\-\--
+
+Note: \_cons estimates baseline odds.
+
+.
+
+end of do-file
+
+.
+
+From the result we can see that the p-value for nd_chance is 0.336, which it is statistically insignificant. In this case we should not consider people thinking that the chance of experiencing a natural disaster or severe weather event will be higher, lower or about the same in 5 years as an influential predictor for the model. Hence, I do not believe that long-term concerns about climate change impact current day concerns about financial stability. Interestingly, How people rate the economic conditions today in the country is a good predictor of the model. An increase in economic significantly decreases the odds of being in the "Same/Better" category (p-value \< 0.0001). In this case, I would say that as an individual being more optimistic of the country's economic conditions, one's financial stability would have a lower likelihood of being "Worse off".
+
+## Part g
+
+\* Before getting the data out of Stata, we need to clean the data first(to delete the variables we don't want).
+
+```{}
+drop fin_condition ND_chance econ_condition ownership_house education race
+```
+
+. do "C:\\Users\\86180\\AppData\\Local\\Temp\\STD86ac_000000.tmp"
+
+. drop fin_condition ND_chance econ_condition ownership_house education race
+
+.
+
+end of do-file
+
+.
+
+\* Then export the data and import it into R.
+
+```{}
+export delimited shed
+```
+
+## Part h
+
+Read the data and import necessary library first.
+
+```{r}
+library(survey)
+shed <- read.csv("shed.csv")
+```
+
+Then re-fit the logistic model as we did in Stata.
+
+```{r}
+svy_design <- svydesign(id = ~CaseID, weight = ~weight_pop, data = shed)
+logistic_model <- svyglm(financial ~ nd_chance + economic + ownership + as.factor(edu) + as.factor(reth), design = svy_design, family = quasibinomial)
+```
+
+Calculate the pseudo-R\^2 and display the result.
+
+```{r}
+pseudo_rsq <- psrsq(logistic_model)
+print(pseudo_rsq)
+```
